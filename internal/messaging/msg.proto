@@ -1,0 +1,13 @@
+syntax = "proto3";
+package messaging;
+
+message msg {
+    string  match   = 1;
+    bytes   payload = 2;
+    bytes   handle  = 3;
+    int32   flags   = 4;
+    bytes   hash    = 5;
+}
+
+
+

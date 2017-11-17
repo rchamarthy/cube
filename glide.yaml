@@ -1,6 +1,17 @@
 package: github.com/anuvu/cube
 import:
 - package: github.com/anuvu/zlog
-- package: github.com/twmb/algoimpl/go/graph
+- package: github.com/golang/protobuf
+  subpackages:
+  - proto
+- package: github.com/satori/go.uuid
+- package: github.com/twmb/algoimpl
+  subpackages:
+  - go/graph
 testImport:
-- package: github.com/smartystreets/goconvey/convey
+- package: github.com/smartystreets/goconvey
+  subpackages:
+  - convey
+- package: github.com/stretchr/testify
+  subpackages:
+  - assert
