@@ -1,4 +1,4 @@
-package messaging
+package msgbus
 
 import (
 	"fmt"
@@ -7,31 +7,34 @@ import (
 	"github.com/satori/go.uuid"
 )
 
-type mockMsgbus struct {
+type mockBroker struct {
 	subMap map[string]func([]byte, bool) ([]byte, error)
 }
 
-func newMockMsgBus(uri string) Msgbus {
-	fmt.Printf("mock: connected\n")
-	mmb := &mockMsgbus{subMap: make(map[string]func([]byte, bool) ([]byte, error))}
-	return mmb
+func newMockBroker(config *Configuration) (Broker, error) {
+	mmb := &mockBroker{subMap: make(map[string]func([]byte, bool) ([]byte, error))}
+	return mmb, nil
 }
 
-func (mmb *mockMsgbus) register(uri string) (Msgbus, error) {
-	mb := newMockMsgBus(uri)
-	return mb, nil
-}
-
-func (mmb *mockMsgbus) unregister() error {
+func (mmb *mockBroker) Register() error {
 	if mmb == nil {
-		return ErrNotInited
+		return ErrBadBroker
 	}
+	fmt.Printf("mock: connected\n")
 	return nil
 }
 
-func (mmb *mockMsgbus) registerMsgHandler(target string, msgHandler func([]byte, bool) ([]byte, error)) error {
+func (mmb *mockBroker) Unregister() error {
 	if mmb == nil {
-		return ErrNotInited
+		return ErrBadBroker
+	}
+	fmt.Printf("mock: disconnected\n")
+	return nil
+}
+
+func (mmb *mockBroker) RegisterMsgHandler(target string, msgHandler func([]byte, bool) ([]byte, error)) error {
+	if mmb == nil {
+		return ErrBadBroker
 	}
 
 	// FIXME: catch some errors!
@@ -45,31 +48,31 @@ func (mmb *mockMsgbus) registerMsgHandler(target string, msgHandler func([]byte,
 	return nil
 }
 
-func (mmb *mockMsgbus) unregisterMsgHandler(target string) error {
+func (mmb *mockBroker) UnregisterMsgHandler(target string) error {
 	if mmb == nil {
-		return ErrNotInited
+		return ErrBadBroker
 	}
 	ch := mmb.subMap[target]
 	if ch == nil {
-		return ErrSubNotFound
+		return ErrDupSub
 	}
 	delete(mmb.subMap, target)
 	fmt.Printf("mock: unsubscribed for [%s]\n", target)
 	return nil
 }
 
-func (mmb *mockMsgbus) send(data []byte, target string) error {
+func (mmb *mockBroker) Send(data []byte, target string) error {
 	if mmb == nil {
-		return ErrNotInited
+		return ErrBadBroker
 	}
 
 	msgHandler := mmb.subMap[target]
 	if msgHandler != nil {
-		msg, err := unmarshal(data)
+		msg, err := Unmarshal(data)
 		if err != nil {
 			panic(err)
 		}
-		msg.verifyHash()
+		msg.VerifyHash()
 		// call the handler
 		msgHandler(msg.GetPayload(), false)
 	}
@@ -78,9 +81,9 @@ func (mmb *mockMsgbus) send(data []byte, target string) error {
 	return nil
 }
 
-func (mmb *mockMsgbus) sendAndWaitResponse(data []byte, target string, handle string, timeout time.Duration) ([]byte, error) {
+func (mmb *mockBroker) SendAndWaitResponse(data []byte, target string, handle string, timeout time.Duration) ([]byte, error) {
 	if mmb == nil {
-		return nil, ErrNotInited
+		return nil, ErrBadBroker
 	}
 
 	msgHandler := mmb.subMap[target]
@@ -108,16 +111,16 @@ func (mmb *mockMsgbus) sendAndWaitResponse(data []byte, target string, handle st
 	// this is a request-response msg, so subscribe a target on this particular msg handle
 	rch := make(chan []byte, 1)
 	go func() {
-		msg, err := unmarshal(data)
+		msg, err := Unmarshal(data)
 		if err != nil {
 			panic(err)
 		}
-		msg.verifyHash()
+		msg.VerifyHash()
 		// call the registered testMsgHandler
 		// FIXME: make this more robust by timing out on stuck msgHandler()
 		fmt.Printf("mock: received a message of %d bytes\n", len(msg.GetPayload()))
 		fmt.Printf("mock: received flags %d\n", msg.GetFlags())
-		respExpected := msg.GetFlags()&msgFlagsRespExpected == msgFlagsRespExpected
+		respExpected := msg.GetFlags()&MsgFlagsRespExpected == MsgFlagsRespExpected
 		r, err := msgHandler(msg.GetPayload(), respExpected)
 		if err != nil {
 			panic(err)
@@ -127,12 +130,12 @@ func (mmb *mockMsgbus) sendAndWaitResponse(data []byte, target string, handle st
 			if len(r) == 0 {
 				panic("invalid response")
 			}
-			rsp := msg.makeReply(r)
+			rsp := msg.MakeReply(r)
 			u1, err := uuid.FromBytes(msg.GetHandle())
 			if err != nil {
 				panic("invalid msg handle")
 			}
-			d, err := marshal(rsp)
+			d, err := Marshal(rsp)
 			if err != nil {
 				panic(err)
 			}
@@ -156,4 +159,8 @@ func (mmb *mockMsgbus) sendAndWaitResponse(data []byte, target string, handle st
 	}
 
 	return r, err
+}
+
+func init() {
+	RegisterFactory("mock", newMockBroker)
 }

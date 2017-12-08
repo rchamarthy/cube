@@ -1,6 +1,13 @@
-hash: af10cc1c84c952fff926f42f101d302c6a1ac84c5a6bc0eebefe2080c4503601
-updated: 2017-12-04T09:53:49.536685454-08:00
+hash: 750a3412d1201cef4169b7f5e6134949ac043a07024adfb68b4c7dfcc867ecee
+updated: 2017-12-11T05:52:39.68870654-08:00
 imports:
+- name: github.com/anuvu/cube
+  version: 9a79b1982737685d0c5023646fbe2a833c45b7a6
+  subpackages:
+  - component
+  - config
+  - di
+  - signal
 - name: github.com/anuvu/zlog
   version: ff66b04dc983fbecb5f3e0dc7d80e74c69984035
 - name: github.com/golang/protobuf

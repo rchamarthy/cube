@@ -1,18 +1,19 @@
-package messaging
+package msgbus
 
 import (
 	"bytes"
 	"crypto/sha1"
 
 	"encoding/binary"
-	"encoding/hex"
 	"errors"
-	"fmt"
+
 	"github.com/golang/protobuf/proto"
 	"github.com/satori/go.uuid"
 )
 
 var (
+	// ErrNewMsg failed to create a new msg
+	ErrNewMsg = errors.New("msg: unable to create a msg")
 	// ErrMarshal marshaling error
 	ErrMarshal = errors.New("msg: unable to marshal")
 	// ErrUnmarshal unmarshaling error
@@ -24,9 +25,12 @@ var (
 type msgFlags int32
 
 const (
-	msgFlagsEmpty        msgFlags = 0
-	msgFlagsRespExpected          = 1 << iota
-	msgFlagsMax
+	// MsgFlagsEmpty no flags
+	MsgFlagsEmpty msgFlags = 0
+	// MsgFlagsRespExpected indicates a response is needed for this msg
+	MsgFlagsRespExpected = 1 << iota
+	// MsgFlagsMax is a sentinel
+	MsgFlagsMax
 )
 
 func newMsg(payload []byte) *Msg {
@@ -36,38 +40,39 @@ func newMsg(payload []byte) *Msg {
 	return msg
 }
 
-// make a reply msg using called msg
-func (msg *Msg) makeReply(payload []byte) *Msg {
+// MakeReply a reply msg using called msg
+func (msg *Msg) MakeReply(payload []byte) *Msg {
 	if msg == nil {
 		panic("invalid msg")
 	}
 	r := new(Msg)
 	*r = *msg
 	r.Payload = payload
-	r.generateHash()
+	r.GenerateHash()
 	return r
 }
 
-func marshal(msg *Msg) ([]byte, error) {
+// Marshal a msg into a byte array
+func Marshal(msg *Msg) ([]byte, error) {
 	d, err := proto.Marshal(msg)
 	return d, err
 }
 
-func unmarshal(d []byte) (*Msg, error) {
+// Unmarshal a byte array into a msg
+func Unmarshal(d []byte) (*Msg, error) {
 	m := &Msg{}
 	err := proto.Unmarshal(d, m)
 	return m, err
 }
 
-// msg integrity routines
-func (msg *Msg) generateHash() {
+// GenerateHash creates an hash of the msg
+func (msg *Msg) GenerateHash() {
 	h := sha1.New()
 	h.Write(msg.Payload)
 	h.Write(msg.Handle)
 	buf := new(bytes.Buffer)
 	err := binary.Write(buf, binary.LittleEndian, msg.Flags)
 	if err != nil {
-		fmt.Println("binary.Write failed:", err)
 		panic(err)
 	}
 	h.Write(buf.Bytes())
@@ -76,7 +81,8 @@ func (msg *Msg) generateHash() {
 	//msg.dump()
 }
 
-func (msg *Msg) verifyHash() {
+// VerifyHash verifies the msg hash
+func (msg *Msg) VerifyHash() {
 	//msg.dump()
 	h := sha1.New()
 	h.Write(msg.Payload)
@@ -84,15 +90,11 @@ func (msg *Msg) verifyHash() {
 	buf := new(bytes.Buffer)
 	err := binary.Write(buf, binary.LittleEndian, msg.Flags)
 	if err != nil {
-		fmt.Println("binary.Write failed:", err)
+		panic(err)
 	}
 	h.Write(buf.Bytes())
 	hash := h.Sum(nil)
 	if !bytes.Equal(hash, msg.GetHash()) {
 		panic("invalid hash")
 	}
-}
-
-func (msg *Msg) dump() {
-	fmt.Printf("Msg[%s|%s|%d|%s]\n", msg.Payload, hex.EncodeToString(msg.Handle), msg.Flags, hex.EncodeToString(msg.Hash))
 }
