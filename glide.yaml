@@ -1,5 +1,11 @@
-package: github.com/anuvu/cube
+package: github.com/chinchani/cube
 import:
+- package: github.com/anuvu/cube
+  subpackages:
+  - component
+  - config
+  - di
+  - signal
 - package: github.com/anuvu/zlog
 - package: github.com/golang/protobuf
   subpackages:

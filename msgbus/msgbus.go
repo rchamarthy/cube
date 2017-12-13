@@ -1,13 +1,14 @@
 package msgbus
 
 import (
+	"bytes"
 	"errors"
 	"sync"
 	"time"
 
 	"github.com/anuvu/cube/component"
 	"github.com/anuvu/cube/config"
-	"github.com/anuvu/cube/internal/messaging"
+	"github.com/golang/protobuf/proto"
 	"github.com/satori/go.uuid"
 )
 
@@ -22,12 +23,12 @@ var (
 	ErrBadPayload = errors.New("msgbus: bad payload")
 )
 
-// configuration defines the configurable parameters of http server
-type configuration struct {
+// Configuration defines the configurable parameters of http server
+type Configuration struct {
 	config.BaseConfig
 	// Listen port
-	MsgbusType messaging.MsgbusType `json:"msgbus_type"`
-	MsgbusURI  string               `json:"msgbus_uri"`
+	MsgbusType string `json:"msgbus_type"`
+	MsgbusURI  string `json:"msgbus_uri"`
 }
 
 // Msgbus is a message bus
@@ -36,81 +37,55 @@ type Msgbus interface {
 	UnregisterMsgHandler(target string) error
 	Send(data []byte, target string) error
 	SendAndWaitResponse(data []byte, target string, timeout time.Duration) ([]byte, uuid.UUID, error)
-	// NOTE: the following are only needed to manually setup the msgbus
-	Register() error
-	Unregister() error
 }
 
 type msgbus struct {
-	config  *configuration
-	mb      messaging.Msgbus
+	config  *Configuration
+	broker  Broker
 	running bool
 	lock    *sync.RWMutex
 }
 
 // New returns a new msgbus
 func New() Msgbus {
-	cfg := &configuration{
+	cfg := &Configuration{
 		BaseConfig: config.BaseConfig{ConfigKey: "msgbus"},
 	}
 
 	return &msgbus{config: cfg, running: false, lock: &sync.RWMutex{}}
 }
 
-func (m *msgbus) Register() error {
-	if m == nil {
-		return ErrInvalid
-	}
-
-	m.mb = messaging.RegisterMsgbus(m.config.MsgbusType, m.config.MsgbusURI)
-	return nil
-}
-
-func (m *msgbus) Unregister() error {
-	if m == nil {
+func (mb *msgbus) RegisterMsgHandler(target string, msgHandler func([]byte, bool) ([]byte, error)) error {
+	if mb == nil {
 		return ErrNotInited
 	}
-
-	if m.mb == nil {
-		return ErrNotInited
-	}
-
-	err := messaging.UnregisterMsgbus(m.mb)
-	m.mb = nil
-	return err
-}
-
-func (m *msgbus) RegisterMsgHandler(target string, msgHandler func([]byte, bool) ([]byte, error)) error {
-	if m == nil {
-		return ErrNotInited
-	}
-	if m.mb == nil {
+	if mb.broker == nil {
 		return ErrNotInited
 	}
 	if target == "" {
 		return ErrBadSub
 	}
-	return messaging.RegisterMsgHandler(target, msgHandler)
+	return mb.broker.RegisterMsgHandler(target, msgHandler)
 }
 
-func (m *msgbus) UnregisterMsgHandler(target string) error {
-	if m == nil {
+func (mb *msgbus) UnregisterMsgHandler(target string) error {
+	if mb == nil {
 		return ErrNotInited
 	}
-	if m.mb == nil {
+	if mb.broker == nil {
 		return ErrNotInited
 	}
 	if target == "" {
 		return ErrBadSub
 	}
-	return messaging.UnregisterMsgHandler(target)
+	return mb.broker.UnregisterMsgHandler(target)
 }
 
-func (m *msgbus) Send(data []byte, target string) error {
-	if m == nil {
+func (mb *msgbus) Send(data []byte, target string) error {
+	if mb == nil {
 		return ErrNotInited
 	}
-	if m.mb == nil {
+	if mb.broker == nil {
 		return ErrNotInited
 	}
 	if target == "" {
@@ -119,14 +94,22 @@ func (m *msgbus) Send(data []byte, target string) error {
 	if len(data) == 0 {
 		return ErrBadPayload
 	}
-	return messaging.Send(data, target)
+
+	msg := newMsg(data)
+	msg.GenerateHash()
+	d, e := proto.Marshal(msg)
+	if e != nil {
+		panic("unable to marshal msg")
+	}
+
+	return mb.broker.Send(d, target)
 }
 
-func (m *msgbus) SendAndWaitResponse(data []byte, target string, timeout time.Duration) ([]byte, uuid.UUID, error) {
-	if m == nil {
+func (mb *msgbus) SendAndWaitResponse(data []byte, target string, timeout time.Duration) ([]byte, uuid.UUID, error) {
+	if mb == nil {
 		return nil, uuid.Nil, ErrNotInited
 	}
-	if m.mb == nil {
+	if mb.broker == nil {
 		return nil, uuid.Nil, ErrNotInited
 	}
 	if target == "" {
@@ -135,37 +118,67 @@ func (m *msgbus) SendAndWaitResponse(data []byte, target string, timeout time.Du
 	if len(data) == 0 {
 		return nil, uuid.Nil, ErrBadPayload
 	}
-	return messaging.SendAndWaitResponse(data, target, timeout)
+
+	msg := newMsg(data)
+	msg.Flags |= MsgFlagsRespExpected
+	msg.GenerateHash()
+	d, err := proto.Marshal(msg)
+	if err != nil {
+		panic("unable to marshal msg")
+	}
+	u, err := uuid.FromBytes(msg.GetHandle())
+	if err != nil {
+		panic("invalid handle")
+	}
+	r, err := mb.broker.SendAndWaitResponse(d, target, u.String(), timeout)
+	if err != nil {
+		return nil, u, err
+	}
+	m, err := Unmarshal(r)
+	if err != nil {
+		panic("unable to unmarshal msg")
+	}
+	m.VerifyHash()
+	if !bytes.Equal(m.GetHandle(), msg.GetHandle()) {
+		panic("request response mismatch")
+	}
+	return m.GetPayload(), u, err
 }
 
-func (m *msgbus) Config() config.Config {
-	return m.config
+func (mb *msgbus) Config() config.Config {
+	return mb.config
 }
 
-func (m *msgbus) Configure(ctx component.Context) error {
+func (mb *msgbus) Configure(ctx component.Context) error {
 	return nil
 }
 
-func (m *msgbus) Start(ctx component.Context) error {
-	err := m.Register()
+func (mb *msgbus) Start(ctx component.Context) error {
+	// instantiate the broker based on configuration
+	b, err := NewBroker(mb.config)
+	if err != nil {
+		return err
+	}
+	mb.broker = b
+	err = mb.broker.Register()
 	if err == nil {
-		m.lock.Lock()
-		defer m.lock.Unlock()
-		m.running = true
+		mb.lock.Lock()
+		defer mb.lock.Unlock()
+		mb.running = true
 	}
 	return err
 }
 
-func (m *msgbus) Stop(ctx component.Context) error {
-	err := m.Unregister()
-	m.lock.Lock()
-	defer m.lock.Unlock()
-	m.running = false
+func (mb *msgbus) Stop(ctx component.Context) error {
+	err := mb.broker.Unregister()
+	mb.lock.Lock()
+	defer mb.lock.Unlock()
+	mb.running = false
 	return err
 }
 
-func (m *msgbus) IsHealthy(ctx component.Context) bool {
-	m.lock.RLock()
-	defer m.lock.RUnlock()
-	return m.running
+func (mb *msgbus) IsHealthy(ctx component.Context) bool {
+	mb.lock.RLock()
+	defer mb.lock.RUnlock()
+	return mb.running
 }

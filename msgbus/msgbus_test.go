@@ -9,7 +9,6 @@ import (
 	"os"
 
 	"github.com/anuvu/cube/component"
-	"github.com/anuvu/cube/internal/messaging"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -52,10 +51,12 @@ func testAPISequence(t *testing.T, mb Msgbus) {
 	testMsg := []byte("Mr. Watson--come here--I want to see you.")
 	target1 := "foo"
 	var nmb *msgbus
+	bmb := &msgbus{}
 
 	// register a listener
 	fmt.Printf("Register a listener\n")
 	assert.NotNil(t, nmb.RegisterMsgHandler(target1, msgListener))
+	assert.NotNil(t, bmb.RegisterMsgHandler(target1, msgListener))
 	assert.NotNil(t, mb.RegisterMsgHandler("", msgListener))
 	assert.Nil(t, mb.RegisterMsgHandler(target1, msgListener))
 	assert.NotNil(t, mb.RegisterMsgHandler(target1, msgListener))
@@ -63,6 +64,7 @@ func testAPISequence(t *testing.T, mb Msgbus) {
 	// send a msg to first target
 	fmt.Printf("Fire-and-forget to first target\n")
 	assert.NotNil(t, nmb.Send([]byte(testMsg), target1))
+	assert.NotNil(t, bmb.Send([]byte(testMsg), target1))
 	assert.NotNil(t, mb.Send([]byte(testMsg), ""))
 	assert.NotNil(t, mb.Send(nil, target1))
 	assert.Nil(t, mb.Send([]byte(testMsg), target1))
@@ -71,6 +73,8 @@ func testAPISequence(t *testing.T, mb Msgbus) {
 	// send a blocking (forever) send-receive to first target
 	fmt.Printf("Blocking send and wait forever\n")
 	_, _, e := nmb.SendAndWaitResponse([]byte(testMsg), target1, 0)
+	assert.NotNil(t, e)
+	_, _, e = bmb.SendAndWaitResponse([]byte(testMsg), target1, 0)
 	assert.NotNil(t, e)
 	_, _, e = mb.SendAndWaitResponse([]byte(testMsg), "", 0)
 	assert.NotNil(t, e)
@@ -94,7 +98,7 @@ func testAPISequence(t *testing.T, mb Msgbus) {
 	timeout = time.Duration(10 * time.Microsecond) // no msgbus can do this
 	_, _, e = mb.SendAndWaitResponse([]byte(testMsg), target1, timeout)
 	assert.True(t, checkRcvdMsgIs(testMsg))
-	assert.Equal(t, e, messaging.ErrTimeout) // if there is a timeout, this will be non-nil
+	assert.Equal(t, e, ErrTimeout) // if there is a timeout, this will be non-nil
 
 	// send to second target not received
 	fmt.Printf("Send to a non-listening target\n")
@@ -105,6 +109,7 @@ func testAPISequence(t *testing.T, mb Msgbus) {
 	// unregister the first listener
 	fmt.Printf("Unregister first listener\n")
 	assert.NotNil(t, nmb.UnregisterMsgHandler(target1))
+	assert.NotNil(t, bmb.UnregisterMsgHandler(target1))
 	assert.NotNil(t, mb.UnregisterMsgHandler(""))
 	assert.NotNil(t, mb.UnregisterMsgHandler("unknown"))
 	assert.Nil(t, mb.UnregisterMsgHandler(target1))
@@ -115,6 +120,7 @@ func testAPISequence(t *testing.T, mb Msgbus) {
 	assert.False(t, checkRcvdMsgIs(testMsg))
 }
 
+/*
 func TestMsgbusAPI(t *testing.T) {
 	// create a new bus instance
 	fmt.Printf("Creating a new bus instance\n")
@@ -145,11 +151,12 @@ func TestMsgbusAPI(t *testing.T) {
 	assert.NotNil(t, mb.Unregister())
 	assert.NotNil(t, nmb.Unregister())
 }
+*/
 
 func TestGroupIntegration(t *testing.T) {
 	// Replace os.Args for test case
 	oldArgs := os.Args
-	os.Args = []string{"msgbus_test", "-config.mem", `{"msgbus": {"msgbus_type": 0}}`}
+	os.Args = []string{"msgbus_test", "-config.mem", `{"msgbus": {"msgbus_type": "mock"}}`}
 	defer func() { os.Args = oldArgs }()
 
 	// new group

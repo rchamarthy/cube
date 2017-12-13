@@ -1,5 +1,5 @@
 syntax = "proto3";
-package messaging;
+package msgbus;
 
 message msg {
     string  match   = 1;
