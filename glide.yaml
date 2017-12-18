@@ -1,4 +1,4 @@
-package: github.com/chinchani/cube
+package: github.com/anuvu/cube
 import:
 - package: github.com/anuvu/cube
   subpackages:

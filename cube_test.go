@@ -52,46 +52,61 @@ func TestCubePanics(t *testing.T) {
 	defer func() { os.Args = oldArgs }()
 
 	Convey("cube main should panic on create error", t, func() {
-		initFunc := func(g component.Group) error {
-			return g.Add(func(bool) int { return 0 })
+		initFunc := func(g component.Group) (Invoker, error) {
+			err := g.Add(func(bool) int { return 0 })
+			return nil, err
 		}
 		So(func() { Main(initFunc) }, ShouldPanic)
 	})
 
 	Convey("cube main should panic on config error", t, func() {
-		initFunc := func(g component.Group) error { return g.Add(newBadConfig) }
+		initFunc := func(g component.Group) (Invoker, error) {
+			err := g.Add(newBadConfig)
+			return nil, err
+		}
 		So(func() { Main(initFunc) }, ShouldPanic)
 	})
 
 	Convey("cube main should panic dependencies are not met", t, func() {
-		initFunc := func(g component.Group) error { return g.Add(func(i *int) {}) }
+		initFunc := func(g component.Group) (Invoker, error) {
+			err := g.Add(func(i *int) {})
+			return nil, err
+		}
 		So(func() { Main(initFunc) }, ShouldPanic)
 	})
 
 	Convey("cube main should panic on start errors", t, func() {
-		initFunc := func(g component.Group) error {
+		initFunc := func(g component.Group) (Invoker, error) {
 			g.Add(newtest)
-			return nil
+			return nil, nil
+		}
+		So(func() { Main(initFunc) }, ShouldPanic)
+	})
+	Convey("cube main should panic on invoke errors", t, func() {
+		initFunc := func(g component.Group) (Invoker, error) {
+			return func() error {
+				return errors.New("bad invoke")
+			}, nil
 		}
 		So(func() { Main(initFunc) }, ShouldPanic)
 	})
 
 	Convey("cube main should panic on stop errors", t, func() {
-		initFunc := func(g component.Group) error {
+		initFunc := func(g component.Group) (Invoker, error) {
 			g.Add(func() *stoptester { return &stoptester{} })
 			g.Add(func(s *stoptester, k component.ServerShutdown) int { k(); return 0 })
-			return nil
+			return nil, nil
 		}
 		So(func() { Main(initFunc) }, ShouldPanic)
 	})
 
 	Convey("calling shutdown handler should stop server", t, func() {
-		initFunc := func(g component.Group) error {
+		initFunc := func(g component.Group) (Invoker, error) {
 			g.Add(func(s *shutDownHandler) int {
 				s.shut(syscall.SIGTERM)
 				return 0
 			})
-			return nil
+			return nil, nil
 		}
 		So(func() { Main(initFunc) }, ShouldNotPanic)
 	})

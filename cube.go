@@ -11,7 +11,12 @@ import (
 
 // ServerInit provides the server initialization function type.
 // This function is called to customize server initialization.
-type ServerInit func(g component.Group) error
+type ServerInit func(g component.Group) (Invoker, error)
+
+// Invoker provides the invocation function callback. This function is called
+// to invoke any custom functions after the server initialization. If the server
+// initialization fails this callback may never be called.
+type Invoker func() error
 
 // Main is the entrypoint of the server that can be customized by providing a
 // ServerInit function. Developers can create custom components and component
@@ -29,7 +34,8 @@ func Main(initF ServerInit) {
 	srvGrp.Add(newShutHandler)
 
 	// Initialize all the server components
-	if err := initF(srvGrp); err != nil {
+	invoker, err := initF(srvGrp)
+	if err != nil {
 		panic(err)
 	}
 
@@ -46,6 +52,12 @@ func Main(initF ServerInit) {
 	// Start the server
 	if err := base.Start(); err != nil {
 		panic(err)
+	}
+
+	if invoker != nil {
+		if err := invoker(); err != nil {
+			panic(err)
+		}
 	}
 
 	// Wait for shutdown sequence to be initiated by someone

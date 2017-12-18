@@ -32,24 +32,10 @@ func (d *dummy) Stop(ctx component.Context) error {
 	return nil
 }
 
-type killer struct {
-	kill component.ServerShutdown
-}
-
-func newKiller(d *dummy, k component.ServerShutdown, ctx component.Context) *killer {
-	ctx.Log().Info().Msg("killer object created")
-	// Make a dummy dependency so that this will start after dummy is started
-	return &killer{k}
-}
-
-func (k *killer) Start(ctx component.Context) error {
-	go func() {
-		// Wait for a second and initiate a shutdown
-		time.Sleep(time.Millisecond)
-		ctx.Log().Info().Msg("Killing the server")
-		k.kill()
-	}()
-	return nil
+func killer(ctx component.Context, k component.ServerShutdown) {
+	time.Sleep(time.Millisecond)
+	ctx.Log().Info().Msg("Killing the server")
+	k()
 }
 
 func ExampleMain() {
@@ -58,17 +44,18 @@ func ExampleMain() {
 	os.Args = []string{"cube.test"}
 	defer func() { os.Args = oldArgs }()
 
-	cube.Main(func(g component.Group) error {
+	cube.Main(func(g component.Group) (cube.Invoker, error) {
 		g.Add(newDummy)
-		g.Add(newKiller)
-		return nil
+		return func() error {
+			g.Invoke(killer)
+			return nil
+		}, nil
 	})
 
 	// Output:
 	// {"level":"info","name":"cube.test-core","message":"creating group"}
 	// {"level":"info","name":"cube.test","message":"creating group"}
 	// {"level":"info","name":"cube.test","message":"dummy object created"}
-	// {"level":"info","name":"cube.test","message":"killer object created"}
 	// {"level":"info","name":"cube.test-core","message":"configuring group"}
 	// {"level":"info","name":"cube.test","message":"configuring group"}
 	// {"level":"info","name":"cube.test-core","message":"starting group"}
